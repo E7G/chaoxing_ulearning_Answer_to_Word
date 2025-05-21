@@ -2,7 +2,7 @@
  超星优学院答案保存为word
 
 
-![MIT License](https://img.shields.io/badge/license-MIT-blue) 
+![GPL-3.0 License](https://img.shields.io/badge/license-GPL--3.0-blue) 
 ![Tampermonkey Version](https://img.shields.io/badge/Tampermonkey-v4.16-green)
 
 专为超星/优学院平台设计的自动化答案导出工具，支持将题目与正确答案一键保存为结构化Word文档。
@@ -95,8 +95,7 @@
    - 直接修改即可
 
 ## 📜 许可证
-MIT Licensed - 查看完整协议内容请访问[LICENSE](LICENSE)
-
+GPL-3.0 Licensed - 查看完整协议内容请访问[LICENSE](LICENSE)
 ---
 
 > 提示：本脚本仅用于学习研究，请遵守平台使用规则。
