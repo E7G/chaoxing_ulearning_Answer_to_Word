@@ -6,6 +6,7 @@
 // @author       e7g
 // @match      	 *://*.chaoxing.com/*work*view*
 // @match      	 *://*.chaoxing.com/*exam*
+// @match      	 *://*.chaoxing.com/*selectWorkQuestionYiPiYue*
 // @match      	 *://homework.ulearning.cn/*
 // @grant        none
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js
@@ -18,17 +19,25 @@
     // 新增站点识别函数
     function getSiteType() {
         const url = window.location.href;
-        if (url.includes('chaoxing.com')) return 'chaoxing';
+        if (window.location.host.includes('chaoxing.com')) {
+            // 适配新发现的测验页面路径 /mycourse/studentstudy
+            if (url.includes('selectWorkQuestionYiPiYue')) {
+                return 'chaoxing_quiz';
+            }
+            return 'chaoxing';
+        }
         if (url.includes('ulearning.cn')) return 'ulearning';
         return 'unknown';
     }
 
     // const titleElement = document.getElementsByClassName("mark_title")[0];//||document.getElementsByClassName("ceyan_name")[0].children[0]
     const currentSite = getSiteType();
+    // 调整标题选择逻辑，增加测验页面支持
     const titleElement = currentSite === 'chaoxing' ?
         document.getElementsByClassName("mark_title")[0] :
-        document.querySelectorAll('.ul-page__header h1, .ul-page__header h2, .ul-page__header h3, .ul-page__header h4, .ul-page__header h5, .ul-page__header h6')[0] ; // ulearning的标题选择器
-
+        currentSite === 'chaoxing_quiz' ?
+            document.querySelectorAll('.ceyan_name h1, .ceyan_name h2, .ceyan_name h3, .ceyan_name h4, .ceyan_name h5, .ceyan_name h6')[0] :
+            document.querySelectorAll('.ul-page__header h1, .ul-page__header h2, .ul-page__header h3, .ul-page__header h4, .ul-page__header h5, .ul-page__header h6')[0];
     if (!titleElement) return;
     // 创建一个浮动的可拖动按钮
     const button = document.createElement('button');
@@ -87,7 +96,8 @@
         }
 
         // Extract text from elements with class "aiAreaContent"
-        const contentElements = currentSite == "chaoxing" ? document.getElementsByClassName("aiAreaContent") : document.getElementsByClassName("question-item");
+        const contentElements = currentSite == "chaoxing" ? document.getElementsByClassName("aiAreaContent") :
+        currentSite === 'chaoxing_quiz' ? document.getElementsByClassName("aiAreaContent") : document.getElementsByClassName("question-item");
         const paragraphs = [];
 
         for (let i = 0; i < contentElements.length; i++) {
@@ -112,6 +122,19 @@
                 if (colorGreenElement && markAnswerElement) {
                     markAnswerElement.innerText = colorGreenElement.innerText;
                 }
+
+            }else if (currentSite === "chaoxing_quiz") {
+
+                    // 获取类名为 "colorGreen marginRight40 fl" 的第一个元素
+                    const colorGreenElement = contentElement.getElementsByClassName("correctAnswerBx")[0];
+
+                    // 获取类名为 "mark_answer" 的第一个元素
+                    const markAnswerElement = contentElement.getElementsByClassName("newAnswerBx")[0];
+
+                    // 检查这两个元素是否存在
+                    if (colorGreenElement && markAnswerElement) {
+                        markAnswerElement.innerText = colorGreenElement.innerText;
+                    }
 
             }
 
