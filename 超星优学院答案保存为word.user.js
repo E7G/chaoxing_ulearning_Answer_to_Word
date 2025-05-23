@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星优学院答案保存为word
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      0.1.1
 // @description  Extract text from specific elements, modify it, and save as a DOCX file
 // @author       e7g
 // @match      	 *://*.chaoxing.com/*work*view*
