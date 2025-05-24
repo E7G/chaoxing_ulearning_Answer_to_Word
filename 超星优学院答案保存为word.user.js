@@ -97,7 +97,7 @@
 
         // Extract text from elements with class "aiAreaContent"
         const contentElements = currentSite == "chaoxing" ? document.getElementsByClassName("aiAreaContent") :
-        currentSite === 'chaoxing_quiz' ? document.getElementsByClassName("aiAreaContent") : document.getElementsByClassName("question-item");
+            currentSite === 'chaoxing_quiz' ? document.getElementsByClassName("aiAreaContent") : document.getElementsByClassName("question-item");
         const paragraphs = [];
 
         for (let i = 0; i < contentElements.length; i++) {
@@ -123,21 +123,23 @@
                     markAnswerElement.innerText = colorGreenElement.innerText;
                 }
 
-            }else if (currentSite === "chaoxing_quiz") {
+            } else if (currentSite === "chaoxing_quiz") {
 
-                    // 获取类名为 "colorGreen marginRight40 fl" 的第一个元素
-                    const colorGreenElement = contentElement.getElementsByClassName("correctAnswerBx")[0];
+                // 优化获取元素的逻辑，使用可选链操作符避免空值错误
+                const zyTitleElement = contentElement.querySelector('.aiAreaContent .Zy_TItle .fl');
+                if (zyTitleElement) {
+                    zyTitleElement.innerText += '.';
+                }
 
-                    // 获取类名为 "mark_answer" 的第一个元素
-                    const markAnswerElement = contentElement.getElementsByClassName("newAnswerBx")[0];
+                // 使用更具描述性的变量名，并使用 querySelector 替代 getElementsByClassName
+                const correctAnswerElement = contentElement.querySelector('.correctAnswerBx');
+                const newAnswerElement = contentElement.querySelector('.newAnswerBx');
 
-                    // 检查这两个元素是否存在
-                    if (colorGreenElement && markAnswerElement) {
-                        markAnswerElement.innerText = colorGreenElement.innerText;
-                    }
-
+                // 检查这两个元素是否存在
+                if (correctAnswerElement && newAnswerElement) {
+                    newAnswerElement.innerText = correctAnswerElement.innerText;
+                }
             }
-
             // Add the modified content to the paragraphs array
             paragraphs.push(contentElement.innerText.trim());
             if (currentSite === "ulearning") {
