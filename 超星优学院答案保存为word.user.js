@@ -182,6 +182,7 @@
                 }
 
             }
+            paragraphs.push(''); // Add a blank line between paragraphs
         }
 
         // Function to create a simple DOCX file
