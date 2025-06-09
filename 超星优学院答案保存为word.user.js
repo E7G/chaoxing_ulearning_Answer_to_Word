@@ -126,10 +126,10 @@
             } else if (currentSite === "chaoxing_quiz") {
 
                 // 优化获取元素的逻辑，使用可选链操作符避免空值错误
-                const zyTitleElement = contentElement.querySelector('.aiAreaContent .Zy_TItle .fl');
-                if (zyTitleElement) {
-                    zyTitleElement.innerText += '.';
-                }
+                // const zyTitleElement = contentElement.querySelector('.aiAreaContent .Zy_TItle .fl');
+                // if (zyTitleElement) {
+                //     zyTitleElement.innerText += '.';
+                // }
 
                 // 使用更具描述性的变量名，并使用 querySelector 替代 getElementsByClassName
                 const correctAnswerElement = contentElement.querySelector('.correctAnswerBx');
