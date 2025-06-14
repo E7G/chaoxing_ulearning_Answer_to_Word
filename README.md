@@ -42,7 +42,7 @@
 ## 🚀 快速安装
 ### 基础环境
 1. 安装[Tampermonkey扩展](https://www.tampermonkey.net/)
-2. 手动下载安装脚本
+2. 手动下载[安装脚本](https://github.com/E7G/chaoxing_ulearning_Answer_to_Word/raw/refs/heads/main/%E8%B6%85%E6%98%9F%E4%BC%98%E5%AD%A6%E9%99%A2%E7%AD%94%E6%A1%88%E4%BF%9D%E5%AD%98%E4%B8%BAword.user.js)
 
 ### 依赖管理
 ```html
