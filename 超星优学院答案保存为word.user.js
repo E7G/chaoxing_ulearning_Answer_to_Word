@@ -1,13 +1,14 @@
 // ==UserScript==
 // @name         超星优学院答案保存为word
 // @namespace    http://tampermonkey.net/
-// @version      0.1.1
+// @version      0.1.2
 // @description  Extract text from specific elements, modify it, and save as a DOCX file
 // @author       e7g
-// @match      	 *://*.chaoxing.com/*work*view*
-// @match      	 *://*.chaoxing.com/*exam*
-// @match      	 *://*.chaoxing.com/*selectWorkQuestionYiPiYue*
-// @match      	 *://homework.ulearning.cn/*
+// @match       	 *://*.chaoxing.com/*work*view*
+// @match       	 *://*.chaoxing.com/*exam*
+// @match       	 *://*.chaoxing.com/*selectWorkQuestionYiPiYue*
+// @match       	 *://homework.ulearning.cn/*
+// @match       	 *://changjiang-exam.yuketang.cn/result/*
 // @grant        none
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js
 // @require      https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js
@@ -27,17 +28,24 @@
             return 'chaoxing';
         }
         if (url.includes('ulearning.cn')) return 'ulearning';
+        if (url.includes('changjiang-exam.yuketang.cn')) return 'changjiang_yuketang';
         return 'unknown';
     }
 
     // const titleElement = document.getElementsByClassName("mark_title")[0];//||document.getElementsByClassName("ceyan_name")[0].children[0]
     const currentSite = getSiteType();
-    // 调整标题选择逻辑，增加测验页面支持
-    const titleElement = currentSite === 'chaoxing' ?
-        document.getElementsByClassName("mark_title")[0] :
-        currentSite === 'chaoxing_quiz' ?
-            document.querySelectorAll('.ceyan_name h1, .ceyan_name h2, .ceyan_name h3, .ceyan_name h4, .ceyan_name h5, .ceyan_name h6')[0] :
-            document.querySelectorAll('.ul-page__header h1, .ul-page__header h2, .ul-page__header h3, .ul-page__header h4, .ul-page__header h5, .ul-page__header h6')[0];
+
+    // 站点标题选择器配置 - 消除嵌套条件
+    const siteTitleSelectors = {
+        'chaoxing': '.mark_title',
+        'chaoxing_quiz': '.ceyan_name h1, .ceyan_name h2, .ceyan_name h3, .ceyan_name h4, .ceyan_name h5, .ceyan_name h6',
+        'changjiang_yuketang': '.header-title',
+        'ulearning': '.ul-page__header h1, .ul-page__header h2, .ul-page__header h3, .ul-page__header h4, .ul-page__header h5, .ul-page__header h6'
+    };
+
+    // 获取标题元素 - 一行解决，无嵌套
+    const titleElement = document.querySelector(siteTitleSelectors[currentSite]);
+    // console.log("currentSite:", currentSite, "titleElement:", titleElement.textContent);
     if (!titleElement) return;
     // 创建一个浮动的可拖动按钮
     const button = document.createElement('button');
@@ -88,105 +96,293 @@
         }
     });
 
-    button.addEventListener('dblclick', function (e) {
+    // ulearning答案提取函数 - 消除嵌套
+function extractUlearningAnswer(element) {
+    // 多选题处理
+    if (element.querySelector('.choice-item')) {
+        return extractMultipleChoice(element);
+    }
+
+    // 判断题处理
+    return extractTrueFalse(element);
+}
+
+function extractMultipleChoice(element) {
+    const options = Array.from(element.querySelectorAll('.choice-item')).map(item => {
+        const index = item.querySelector('.index').textContent.trim().replace('.', '');
+        const text = item.querySelector('.choice-title').textContent.trim();
+        return `${index}.${text}`;
+    });
+
+    const selected = [...new Set(
+        Array.from(element.querySelectorAll('.is-checked')).map(item =>
+            item.closest('.choice-item').querySelector('.index').textContent.trim().replace('.', '')
+        )
+    )];
+
+    return `当前选项：${selected.join(',')}`;
+}
+
+function extractTrueFalse(element) {
+    const iconMap = { 'icon-zhengque': '对', 'icon-cuowu1': '错' };
+
+    const options = Array.from(element.querySelectorAll('.ul-radio__label')).map(label => {
+        return Array.from(label.childNodes).map(node => {
+            if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('iconfont')) {
+                return iconMap[Array.from(node.classList).find(c => c in iconMap)] || '';
+            }
+            return node.nodeType === Node.TEXT_NODE ? node.textContent.trim() : '';
+        }).join('').replace(/\s+/g, ' ');
+    }).filter(text => text);
+
+    const selectedNode = element.querySelector('.is-checked .ul-radio__label i');
+    const selected = selectedNode ? iconMap[Array.from(selectedNode.classList).find(c => c in iconMap)] : '未知';
+
+    return `${options.join(' ')}\n当前选项：${selected}`;
+}
+
+button.addEventListener('dblclick', async function (e) {
         if (isDragging) {
             e.stopPropagation();
             e.preventDefault();
             return;
         }
 
-        // Extract text from elements with class "aiAreaContent"
-        const contentElements = currentSite == "chaoxing" ? document.getElementsByClassName("aiAreaContent") :
-            currentSite === 'chaoxing_quiz' ? document.getElementsByClassName("aiAreaContent") : document.getElementsByClassName("question-item");
+        // 站点内容元素选择器配置 - 消除条件嵌套
+        const siteContentSelectors = {
+            'chaoxing': '.aiAreaContent',
+            'chaoxing_quiz': '.aiAreaContent',
+            'changjiang_yuketang': '.subject-item:not(.subject-item.primary)',
+            'ulearning': '.question-item'
+        };
+
+        // 获取内容元素 - 一行解决
+        const contentElements = document.querySelectorAll(siteContentSelectors[currentSite]);
         const paragraphs = [];
 
+        // 站点处理策略 - 消除所有if-else分支
+        const siteProcessors = {
+            'chaoxing': (element) => {
+                // 处理colorShallow元素
+                const colorShallowElement = element.querySelector('.colorShallow');
+                if (colorShallowElement) {
+                    const match = colorShallowElement.textContent.match(/..题/g);
+                    if (match) {
+                        colorShallowElement.textContent = `【${match[0]}】`;
+                    }
+                }
+
+                // 同步正确答案
+                const colorGreenElement = element.querySelector('.colorGreen');
+                const markAnswerElement = element.querySelector('.mark_answer');
+                if (colorGreenElement && markAnswerElement) {
+                    markAnswerElement.textContent = colorGreenElement.textContent;
+                }
+            },
+
+            'chaoxing_quiz': (element) => {
+                // 同步测验答案
+                const correctAnswerElement = element.querySelector('.correctAnswerBx');
+                const newAnswerElement = element.querySelector('.newAnswerBx');
+                if (correctAnswerElement && newAnswerElement) {
+                    newAnswerElement.textContent = correctAnswerElement.textContent;
+                }
+            },
+
+            'changjiang_yuketang': (element) => {
+                // 长江雨课堂的答案提取逻辑 - 提取选项、图片和正确答案
+                const selectedOption = element.querySelector('.el-radio.is-checked');
+                const allOptions = element.querySelectorAll('.el-radio');
+                const titleElement = element.querySelector('.item-body h4, .exam-font');
+                const imgElement = titleElement?.querySelector('img');
+                const itemTypeElement = element.querySelector('.item-type');
+                const correctAnswerElement = element.querySelector('.item-footer--header span:last-child');
+                
+                // 提取题号信息
+                if (itemTypeElement) {
+                    const itemTypeText = itemTypeElement.textContent.trim();
+                    element.setAttribute('data-item-type', itemTypeText);
+                }
+                
+                // 提取图片信息（用于后续嵌入）
+                if (imgElement) {
+                    const imgSrc = imgElement.getAttribute('src');
+                    const imgAlt = imgElement.getAttribute('alt') || '题目图片';
+                    if (imgSrc) {
+                        // 只存储图片源和alt，不再存储冗余的文本信息
+                        element.setAttribute('data-image-src', imgSrc);
+                        element.setAttribute('data-image-alt', imgAlt);
+                    }
+                }
+                
+                if (selectedOption) {
+                    // 获取显示的选项标识（不是value，而是显示的A/B/C/D）
+                    const displayLabel = selectedOption.querySelector('.radioInput')?.textContent?.trim();
+                    // 获取选项文本
+                    const optionText = selectedOption.querySelector('.radioText')?.textContent?.trim();
+                    
+                    if (displayLabel && optionText) {
+                        element.setAttribute('data-selected-option', `${displayLabel}. ${optionText}`);
+                    }
+                }
+                
+                // 提取正确答案
+                if (correctAnswerElement) {
+                    const correctAnswer = correctAnswerElement.textContent.trim();
+                    element.setAttribute('data-correct-answer', correctAnswer);
+                }
+                
+                // 提取所有选项
+                if (allOptions.length > 0) {
+                    const optionList = Array.from(allOptions).map((opt) => {
+                        const displayLabel = opt.querySelector('.radioInput')?.textContent?.trim();
+                        const text = opt.querySelector('.radioText')?.textContent?.trim() || '';
+                        return `${displayLabel}. ${text}`;
+                    });
+                    element.setAttribute('data-all-options', optionList.join('\n'));
+                }
+            },
+
+            'ulearning': (element) => {
+                // ulearning答案提取逻辑
+                const answerElement = element.querySelector(".choice-list, .answer-area");
+                if (answerElement) {
+                    const answerInfo = extractUlearningAnswer(answerElement);
+                    element.setAttribute('data-answer-info', answerInfo);
+                }
+            }
+        };
+        // 内容收集策略 - 消除剩余的条件分支
+        const contentCollectors = {
+            'chaoxing': (element) => [element.textContent.trim()],
+            'chaoxing_quiz': (element) => [element.textContent.trim()],
+            'changjiang_yuketang': (element) => {
+                const parts = [];
+                const selectedOption = element.getAttribute('data-selected-option');
+                const correctAnswer = element.getAttribute('data-correct-answer');
+                const allOptions = element.getAttribute('data-all-options');
+                const itemType = element.getAttribute('data-item-type');
+                
+                // 添加题号信息
+                if (itemType) {
+                    parts.push(itemType);
+                    parts.push(''); // 空行
+                }
+                
+                // 添加题目内容（处理图片，在图片位置插入占位符）
+                const titleElement = element.querySelector('.item-body h4, .exam-font');
+                if (titleElement) {
+                    // 克隆元素避免修改原始DOM
+                    const titleClone = titleElement.cloneNode(true);
+                    const imgElement = titleClone.querySelector('img');
+                    
+                    if (imgElement) {
+                        // 在图片位置插入占位符，保留图片alt文本
+                        const imgAlt = imgElement.getAttribute('alt') || '题目图片';
+                        imgElement.replaceWith(`[IMAGE:${imgAlt}]`);
+                    }
+                    
+                    let titleText = titleClone.textContent.trim();
+                    // 清理多余的空白字符
+                    titleText = titleText.replace(/\s+/g, ' ').trim();
+                    parts.push(titleText);
+                } else {
+                    parts.push(element.textContent.trim());
+                }
+                
+                // 添加所有选项
+                if (allOptions) {
+                    parts.push(''); // 空行
+                    parts.push('选项：');
+                    parts.push(allOptions);
+                }
+                
+                // 添加选中的选项（高亮显示）
+                if (selectedOption) {
+                    parts.push(''); // 空行
+                    parts.push(`我的答案: ${selectedOption}`);
+                }
+                
+                // 添加正确答案
+                if (correctAnswer) {
+                    parts.push(''); // 空行
+                    parts.push(`正确答案: ${correctAnswer}`);
+                }
+                
+                return parts;
+            },
+            'ulearning': (element) => {
+                const parts = [element.textContent.trim()];
+                const answerInfo = element.getAttribute('data-answer-info');
+
+                if (answerInfo) parts.push(answerInfo);
+
+                return parts;
+            }
+        };
+
+        // 收集内容 - 下载图片并转换为base64
+        const images = []; // 存储图片base64数据和位置信息
+        
+        // 同步处理内容收集，记录准确的图片位置
         for (let i = 0; i < contentElements.length; i++) {
             const contentElement = contentElements[i];
 
-            if (currentSite === "chaoxing") {
-                // Find and modify the element with class "colorShallow"
-                const colorShallowElement = contentElement.getElementsByClassName("colorShallow")[0];
-                if (colorShallowElement) {
-                    const originalText = colorShallowElement.innerText;
-                    const modifiedText = '【' + originalText.match(/..题/g)[0] + '】';
-                    colorShallowElement.innerText = modifiedText;
-                }
-
-                // 获取类名为 "colorGreen marginRight40 fl" 的第一个元素
-                const colorGreenElement = contentElement.getElementsByClassName("colorGreen")[0];
-
-                // 获取类名为 "mark_answer" 的第一个元素
-                const markAnswerElement = contentElement.getElementsByClassName("mark_answer")[0];
-
-                // 检查这两个元素是否存在
-                if (colorGreenElement && markAnswerElement) {
-                    markAnswerElement.innerText = colorGreenElement.innerText;
-                }
-
-            } else if (currentSite === "chaoxing_quiz") {
-
-                // 优化获取元素的逻辑，使用可选链操作符避免空值错误
-                // const zyTitleElement = contentElement.querySelector('.aiAreaContent .Zy_TItle .fl');
-                // if (zyTitleElement) {
-                //     zyTitleElement.innerText += '.';
-                // }
-
-                // 使用更具描述性的变量名，并使用 querySelector 替代 getElementsByClassName
-                const correctAnswerElement = contentElement.querySelector('.correctAnswerBx');
-                const newAnswerElement = contentElement.querySelector('.newAnswerBx');
-
-                // 检查这两个元素是否存在
-                if (correctAnswerElement && newAnswerElement) {
-                    newAnswerElement.innerText = correctAnswerElement.innerText;
-                }
+            // 执行站点特定的处理逻辑
+            const processor = siteProcessors[currentSite];
+            if (processor) {
+                processor(contentElement);
             }
-            // Add the modified content to the paragraphs array
-            paragraphs.push(contentElement.innerText.trim());
-            if (currentSite === "ulearning") {
-                function extractUlearningAnswer(element) {
-                    // 检测题型类型
-                    if (element.querySelector('.choice-item')) {
-                        // 处理多选题
-                        const options = Array.from(element.querySelectorAll('.choice-item')).map(item => {
-                            const index = item.querySelector('.index').textContent.trim().replace('.', '');
-                            const text = item.querySelector('.choice-title').textContent.trim();
-                            return `${index}.${text}`;
+
+            // 收集内容 - 一行解决
+            const collector = contentCollectors[currentSite];
+            if (collector) {
+                const contentParts = collector(contentElement);
+                
+                // 在内容中查找图片占位符，记录准确位置
+                contentParts.forEach((part, partIndex) => {
+                    const imageMatch = part.match(/\[IMAGE:([^\]]+)\]/);
+                    if (imageMatch) {
+                        const imgAlt = imageMatch[1];
+                        const imgSrc = contentElement.getAttribute('data-image-src');
+                        if (imgSrc) {
+                            // 计算这个图片在当前段落中的准确位置
+                        images.push({
+                            url: imgSrc,
+                            index: paragraphs.length + partIndex, // 图片所在段落位置
+                            alt: imgAlt,
+                            partIndex: partIndex, // 在段落中的位置
+                            originalSrc: imgSrc // 保存原始图片src信息
                         });
-                        const selected = [...new Set(  // 使用Set去重
-                            Array.from(element.querySelectorAll('.is-checked')).map(item =>
-                                item.closest('.choice-item').querySelector('.index').textContent.trim().replace('.', '')
-                            )
-                        )];
-                        return `当前选项：${selected.join(',')}`;
+                        }
                     }
-                    else {
-                        // 处理判断题（原有图标转换逻辑）
-                        const iconMap = { 'icon-zhengque': '对', 'icon-cuowu1': '错' };
-                        const options = Array.from(element.querySelectorAll('.ul-radio__label')).map(label => {
-                            return Array.from(label.childNodes).map(node => {
-                                if (node.nodeType === Node.ELEMENT_NODE && node.classList.contains('iconfont')) {
-                                    return iconMap[Array.from(node.classList).find(c => c in iconMap)] || '';
-                                }
-                                return node.nodeType === Node.TEXT_NODE ? node.textContent.trim() : '';
-                            }).join('').replace(/\s+/g, ' ');
-                        }).filter(text => text);
-                        const selectedNode = element.querySelector('.is-checked .ul-radio__label i');
-                        const selected = selectedNode ? iconMap[Array.from(selectedNode.classList).find(c => c in iconMap)] : '未知';
-                        return `${options.join(' ')}\n当前选项：${selected}`;
-                    }
-                }
-
-                const answerElement = contentElement.querySelector(".choice-list, .answer-area");
-                if (answerElement) {
-                    paragraphs.push(extractUlearningAnswer(answerElement));
-                }
-
+                });
+                
+                paragraphs.push(...contentParts);
             }
-            paragraphs.push(''); // Add a blank line between paragraphs
+            paragraphs.push(''); // 段落间隔
         }
 
-        // Function to create a simple DOCX file
-        function createDocx(paragraphs) {
+        // 下载所有图片并转换为base64
+        const validImages = [];
+        for (let i = 0; i < images.length; i++) {
+            try {
+                const base64Data = await downloadImage(images[i].url);
+                if (base64Data) {
+                    validImages.push({
+                        data: base64Data,
+                        index: images[i].index,
+                        alt: images[i].alt,
+                        originalSrc: images[i].originalSrc // 传递原始src信息
+                    });
+                }
+            } catch (error) {
+                console.error('图片下载失败:', error);
+            }
+        }
+
+        // Function to create a simple DOCX file with base64 encoded images
+        async function createDocx(paragraphs, images) {
             const JSZip = window.JSZip;
             const zip = new JSZip();
 
@@ -208,11 +404,149 @@
             `;
             zip.folder('_rels').file('.rels', relsXml);
 
-            // Create the word/document.xml file
+            // Create the word/_rels/document.xml.rels file for image relationships
+            let imageRelsXml = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">';
+            for (let i = 0; i < images.length; i++) {
+                const imageData = images[i].data;
+                
+                // 从data URL中提取文件扩展名
+                let extension = 'png'; // 默认扩展名
+                if (imageData.includes('data:image/')) {
+                    const match = imageData.match(/data:image\/(\w+);base64,(.*)/);
+                    if (match) {
+                        extension = match[1];
+                    }
+                }
+                
+                const imageName = `image${i + 1}.${extension}`;
+                imageRelsXml += `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${imageName}"/>`;
+            }
+            imageRelsXml += '</Relationships>';
+            zip.folder('word').folder('_rels').file('document.xml.rels', imageRelsXml);
+
+            // 构建包含base64图片的文档内容
+            let documentContent = '';
+            let imageIndex = 0;
+            
+            // 为每张图片创建关系ID和图像文件
+            const imageRels = [];
+            for (let i = 0; i < images.length; i++) {
+                const imageData = images[i].data;
+                
+                // 从data URL中提取文件扩展名 - 消除特殊情况
+                let extension = 'png'; // 默认扩展名
+                let base64Data = imageData;
+                
+                // 如果包含data URL前缀，提取扩展名和纯base64数据
+                if (imageData.includes('data:image/')) {
+                    const match = imageData.match(/data:image\/(\w+);base64,(.*)/);
+                    if (match) {
+                        extension = match[1];
+                        base64Data = match[2];
+                    }
+                }
+                
+                const imageName = `image${i + 1}.${extension}`;
+                const imageBuffer = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+                
+                // 添加图片文件到zip
+                zip.folder('word').folder('media').file(imageName, imageBuffer);
+                
+                // 记录关系
+                imageRels.push({
+                    id: `rId${i + 1}`,
+                    target: `media/${imageName}`
+                });
+            }
+            
+            for (let i = 0; i < paragraphs.length; i++) {
+                const text = paragraphs[i];
+                
+                // 检查是否有图片需要插入到当前段落
+                const imagesInThisParagraph = images.filter(img => img.index === i);
+                
+                if (imagesInThisParagraph.length > 0) {
+                    // 处理包含图片占位符的段落
+                    let processedText = text;
+                    
+                    imagesInThisParagraph.forEach((image, imgOrder) => {
+                        // 替换占位符为真实图片
+                        const placeholder = `[IMAGE:${image.alt}]`;
+                        const relId = `rId${imageIndex + 1}`;
+                        
+                        // 分割文本，在图片位置插入图片
+                        const parts = processedText.split(placeholder);
+                        
+                        if (parts[0].trim()) {
+                            documentContent += `<w:p><w:r><w:t>${escapeXml(parts[0])}</w:t></w:r></w:p>`;
+                        }
+                        
+                        // 添加图片，包含原始src信息
+                        documentContent += `
+                            <w:p>
+                                <w:r>
+                                    <w:drawing>
+                                        <wp:inline distT="0" distB="0" distL="0" distR="0">
+                                            <wp:extent cx="3000000" cy="2250000"/>
+                                            <wp:docPr id="${imageIndex + 1}" name="${image.alt}" descr="原始图片地址: ${image.originalSrc || '未知'}"/>
+                                            <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
+                                                <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                                    <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
+                                                        <pic:nvPicPr>
+                                                            <pic:cNvPr id="${imageIndex + 1}" name="${image.alt}" descr="原始图片地址: ${image.originalSrc || '未知'}"/>
+                                                            <pic:cNvPicPr/>
+                                                        </pic:nvPicPr>
+                                                        <pic:blipFill>
+                                                            <a:blip r:embed="${relId}"/>
+                                                            <a:stretch>
+                                                                <a:fillRect/>
+                                                            </a:stretch>
+                                                        </pic:blipFill>
+                                                        <pic:spPr>
+                                                            <a:xfrm>
+                                                                <a:off x="0" y="0"/>
+                                                                <a:ext cx="3000000" cy="2250000"/>
+                                                            </a:xfrm>
+                                                            <a:prstGeom prst="rect">
+                                                                <a:avLst/>
+                                                            </a:prstGeom>
+                                                        </pic:spPr>
+                                                    </pic:pic>
+                                                </a:graphicData>
+                                            </a:graphic>
+                                        </wp:inline>
+                                    </w:drawing>
+                                </w:r>
+                            </w:p>
+                        `;
+                        
+                        processedText = parts[1] || '';
+                        imageIndex++;
+                    });
+                    
+                    // 添加剩余文本
+                    if (processedText.trim()) {
+                        documentContent += `<w:p><w:r><w:t>${escapeXml(processedText)}</w:t></w:r></w:p>`;
+                    }
+                } else {
+                    // 普通文本段落
+                    if (text.trim()) {
+                        documentContent += `<w:p><w:r><w:t>${escapeXml(text)}</w:t></w:r></w:p>`;
+                    } else {
+                        documentContent += '<w:p/>'; // 空行
+                    }
+                }
+            }
+
+            // Create the word/document.xml file with network images
             const documentXml = `
-                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" 
+                           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+                           xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+                           xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                           xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
                     <w:body>
-                        ${paragraphs.map(p => `<w:p><w:r><w:t>${escapeXml(p)}</w:t></w:r></w:p>`).join('')}
+                        ${documentContent}
                     </w:body>
                 </w:document>
             `;
@@ -247,12 +581,44 @@
                 .replace(/'/g, '&apos;');
         }
 
-        // 创建DOCX文件并触发下载
-        createDocx(paragraphs).then(function (blob) {
-            const fileName = (titleElement ? titleElement.innerText.trim() : 'extracted_text') + '.docx';
-            saveAs(blob, fileName);
+        // 图片下载函数 - 转换为base64编码
+        async function downloadImage(url) {
+            try {
+                const response = await fetch(url);
+                const blob = await response.blob();
+                return new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(blob);
+                });
+            } catch (error) {
+                console.error('图片下载失败:', error);
+                return null;
+            }
+        }
+
+
+
+        // 下载图片并生成DOCX文件
+        const imagePromises = images.map(img => 
+            img.data ? Promise.resolve(img) : 
+            downloadImage(img.url || '').then(data => ({...img, data}))
+        );
+        
+        Promise.all(imagePromises).then(function (loadedImages) {
+            // 过滤掉下载失败的图片
+            const validImages = loadedImages.filter(img => img.data);
+            
+            // 创建并下载DOCX文件
+            createDocx(paragraphs, validImages).then(function (blob) {
+                const fileName = (titleElement ? titleElement.innerText.trim() : 'extracted_text') + '.docx';
+                saveAs(blob, fileName);
+            }).catch(function (error) {
+                console.error('创建DOCX文件失败:', error);
+                alert('创建DOCX文件失败: ' + error.message);
+            });
         }).catch(function (error) {
-            console.error('Error creating DOCX file:', error);
+            console.error('下载图片失败:', error);
         });
     });
 })();
