@@ -181,11 +181,56 @@ button.addEventListener('dblclick', async function (e) {
             },
 
             'chaoxing_quiz': (element) => {
-                // 同步测验答案
-                const correctAnswerElement = element.querySelector('.correctAnswerBx');
-                const newAnswerElement = element.querySelector('.newAnswerBx');
-                if (correctAnswerElement && newAnswerElement) {
-                    newAnswerElement.textContent = correctAnswerElement.textContent;
+                // 提取题目类型和题号
+                const titleElement = element.querySelector('.newZy_TItle');
+                const questionNumElement = element.querySelector('.Zy_TItle i');
+                
+                if (titleElement) {
+                    element.setAttribute('data-question-type', titleElement.textContent.trim());
+                }
+                
+                if (questionNumElement) {
+                    element.setAttribute('data-question-number', questionNumElement.textContent.trim());
+                }
+                
+                // 提取题目内容
+                const questionContentElement = element.querySelector('.qtContent');
+                if (questionContentElement) {
+                    // 去掉题型标签，只保留题目内容
+                    const questionText = questionContentElement.textContent.replace(/【.+?】/, '').trim();
+                    element.setAttribute('data-question-text', questionText);
+                }
+                
+                // 提取所有选项
+                const optionElements = element.querySelectorAll('.Zy_ulTop li');
+                if (optionElements.length > 0) {
+                    const options = Array.from(optionElements).map(li => {
+                        const optionLabel = li.querySelector('i').textContent.trim();
+                        const optionText = li.querySelector('a').textContent.trim();
+                        return `${optionLabel} ${optionText}`;
+                    });
+                    element.setAttribute('data-all-options', options.join('\n'));
+                }
+                
+                // 提取用户答案
+                const userAnswerElement = element.querySelector('.answerCon');
+                if (userAnswerElement) {
+                    const userAnswer = userAnswerElement.textContent.trim();
+                    element.setAttribute('data-user-answer', userAnswer);
+                }
+                
+                // 提取分数
+                const scoreElement = element.querySelector('.scoreNum');
+                if (scoreElement) {
+                    const score = scoreElement.textContent.trim();
+                    element.setAttribute('data-score', score);
+                }
+                
+                // 提取答案是否正确
+                const correctOrNotElement = element.querySelector('.CorrectOrNot');
+                if (correctOrNotElement) {
+                    const isCorrect = correctOrNotElement.querySelector('.marking_dui') !== null;
+                    element.setAttribute('data-is-correct', isCorrect ? '正确' : '错误');
                 }
             },
 
@@ -255,7 +300,50 @@ button.addEventListener('dblclick', async function (e) {
         // 内容收集策略 - 消除剩余的条件分支
         const contentCollectors = {
             'chaoxing': (element) => [element.textContent.trim()],
-            'chaoxing_quiz': (element) => [element.textContent.trim()],
+            'chaoxing_quiz': (element) => {
+                const parts = [];
+                
+                // 获取提取的数据
+                const questionType = element.getAttribute('data-question-type');
+                const questionNumber = element.getAttribute('data-question-number');
+                const questionText = element.getAttribute('data-question-text');
+                const allOptions = element.getAttribute('data-all-options');
+                const userAnswer = element.getAttribute('data-user-answer');
+                const score = element.getAttribute('data-score');
+                const isCorrect = element.getAttribute('data-is-correct');
+                
+                // 格式化输出
+                if (questionNumber && questionType) {
+                    parts.push(`${questionNumber} ${questionType}`);
+                } else if (questionType) {
+                    parts.push(questionType);
+                }
+                
+                if (questionText) {
+                    parts.push(questionText);
+                }
+                
+                if (allOptions) {
+                    parts.push('');
+                    parts.push('选项：');
+                    parts.push(allOptions);
+                }
+                
+                if (userAnswer) {
+                    parts.push('');
+                    parts.push(`我的答案：${userAnswer}`);
+                }
+                
+                if (isCorrect) {
+                    parts.push(`答案状态：${isCorrect}`);
+                }
+                
+                if (score) {
+                    parts.push(`得分：${score}分`);
+                }
+                
+                return parts;
+            },
             'changjiang_yuketang': (element) => {
                 const parts = [];
                 const selectedOption = element.getAttribute('data-selected-option');
