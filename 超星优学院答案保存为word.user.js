@@ -206,7 +206,20 @@ button.addEventListener('dblclick', async function (e) {
                 if (optionElements.length > 0) {
                     const options = Array.from(optionElements).map(li => {
                         const optionLabel = li.querySelector('i').textContent.trim();
-                        const optionText = li.querySelector('a').textContent.trim();
+                        let optionText = '';
+                        const aElement = li.querySelector('a');
+                        if (aElement) {
+                            optionText = aElement.textContent.trim();
+                        }
+                        if (!optionText) {
+                            const pElement = li.querySelector('p');
+                            if (pElement) {
+                                optionText = pElement.textContent.trim();
+                            }
+                        }
+                        if (!optionText) {
+                            optionText = li.textContent.replace(optionLabel, '').trim();
+                        }
                         return `${optionLabel} ${optionText}`;
                     });
                     element.setAttribute('data-all-options', options.join('\n'));
@@ -231,6 +244,13 @@ button.addEventListener('dblclick', async function (e) {
                 if (correctOrNotElement) {
                     const isCorrect = correctOrNotElement.querySelector('.marking_dui') !== null;
                     element.setAttribute('data-is-correct', isCorrect ? '正确' : '错误');
+                }
+                
+                // 提取正确答案
+                const correctAnswerElement = element.querySelector('.correctAnswerBx .correctAnswer .answerCon');
+                if (correctAnswerElement) {
+                    const correctAnswer = correctAnswerElement.textContent.trim();
+                    element.setAttribute('data-correct-answer', correctAnswer);
                 }
             },
 
@@ -309,6 +329,7 @@ button.addEventListener('dblclick', async function (e) {
                 const questionText = element.getAttribute('data-question-text');
                 const allOptions = element.getAttribute('data-all-options');
                 const userAnswer = element.getAttribute('data-user-answer');
+                const correctAnswer = element.getAttribute('data-correct-answer');
                 const score = element.getAttribute('data-score');
                 const isCorrect = element.getAttribute('data-is-correct');
                 
@@ -336,6 +357,10 @@ button.addEventListener('dblclick', async function (e) {
                 
                 if (isCorrect) {
                     parts.push(`答案状态：${isCorrect}`);
+                }
+                
+                if (correctAnswer) {
+                    parts.push(`正确答案：${correctAnswer}`);
                 }
                 
                 if (score) {
