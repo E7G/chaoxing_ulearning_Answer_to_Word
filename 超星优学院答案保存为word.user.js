@@ -151,7 +151,7 @@ button.addEventListener('dblclick', async function (e) {
         // 站点内容元素选择器配置 - 消除条件嵌套
         const siteContentSelectors = {
             'chaoxing': '.aiAreaContent',
-            'chaoxing_quiz': '.aiAreaContent',
+            'chaoxing_quiz': '.TiMu',
             'changjiang_yuketang': '.subject-item:not(.subject-item.primary)',
             'ulearning': '.question-item'
         };
@@ -181,7 +181,6 @@ button.addEventListener('dblclick', async function (e) {
             },
 
             'chaoxing_quiz': (element) => {
-                // 提取题目类型和题号
                 const titleElement = element.querySelector('.newZy_TItle');
                 const questionNumElement = element.querySelector('.Zy_TItle i');
                 
@@ -193,15 +192,12 @@ button.addEventListener('dblclick', async function (e) {
                     element.setAttribute('data-question-number', questionNumElement.textContent.trim());
                 }
                 
-                // 提取题目内容
                 const questionContentElement = element.querySelector('.qtContent');
                 if (questionContentElement) {
-                    // 去掉题型标签，只保留题目内容
                     const questionText = questionContentElement.textContent.replace(/【.+?】/, '').trim();
                     element.setAttribute('data-question-text', questionText);
                 }
                 
-                // 提取所有选项
                 const optionElements = element.querySelectorAll('.Zy_ulTop li');
                 if (optionElements.length > 0) {
                     const options = Array.from(optionElements).map(li => {
@@ -225,28 +221,24 @@ button.addEventListener('dblclick', async function (e) {
                     element.setAttribute('data-all-options', options.join('\n'));
                 }
                 
-                // 提取用户答案
-                const userAnswerElement = element.querySelector('.answerCon');
+                const userAnswerElement = element.querySelector('.myAnswerBx .answerCon');
                 if (userAnswerElement) {
                     const userAnswer = userAnswerElement.textContent.trim();
                     element.setAttribute('data-user-answer', userAnswer);
                 }
                 
-                // 提取分数
                 const scoreElement = element.querySelector('.scoreNum');
                 if (scoreElement) {
                     const score = scoreElement.textContent.trim();
                     element.setAttribute('data-score', score);
                 }
                 
-                // 提取答案是否正确
                 const correctOrNotElement = element.querySelector('.CorrectOrNot');
                 if (correctOrNotElement) {
                     const isCorrect = correctOrNotElement.querySelector('.marking_dui') !== null;
                     element.setAttribute('data-is-correct', isCorrect ? '正确' : '错误');
                 }
                 
-                // 提取正确答案
                 const correctAnswerElement = element.querySelector('.correctAnswerBx .correctAnswer .answerCon');
                 if (correctAnswerElement) {
                     const correctAnswer = correctAnswerElement.textContent.trim();
@@ -323,7 +315,6 @@ button.addEventListener('dblclick', async function (e) {
             'chaoxing_quiz': (element) => {
                 const parts = [];
                 
-                // 获取提取的数据
                 const questionType = element.getAttribute('data-question-type');
                 const questionNumber = element.getAttribute('data-question-number');
                 const questionText = element.getAttribute('data-question-text');
@@ -333,9 +324,8 @@ button.addEventListener('dblclick', async function (e) {
                 const score = element.getAttribute('data-score');
                 const isCorrect = element.getAttribute('data-is-correct');
                 
-                // 格式化输出
                 if (questionNumber && questionType) {
-                    parts.push(`${questionNumber} ${questionType}`);
+                    parts.push(`${questionNumber}. ${questionType}`);
                 } else if (questionType) {
                     parts.push(questionType);
                 }
@@ -346,14 +336,11 @@ button.addEventListener('dblclick', async function (e) {
                 
                 if (allOptions) {
                     parts.push('');
-                    parts.push('选项：');
                     parts.push(allOptions);
                 }
                 
-                if (userAnswer) {
-                    parts.push('');
-                    parts.push(`我的答案：${userAnswer}`);
-                }
+                parts.push('');
+                parts.push(`我的答案：${userAnswer || '无'}`);
                 
                 if (isCorrect) {
                     parts.push(`答案状态：${isCorrect}`);
