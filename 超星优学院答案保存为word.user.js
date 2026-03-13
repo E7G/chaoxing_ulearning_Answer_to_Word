@@ -120,7 +120,7 @@ function extractMultipleChoice(element) {
         )
     )];
 
-    return `当前选项：${selected.join(',')}`;
+    return `我的答案：${selected.join(',')}`;
 }
 
 function extractTrueFalse(element) {
@@ -138,7 +138,7 @@ function extractTrueFalse(element) {
     const selectedNode = element.querySelector('.is-checked .ul-radio__label i');
     const selected = selectedNode ? iconMap[Array.from(selectedNode.classList).find(c => c in iconMap)] : '未知';
 
-    return `${options.join(' ')}\n当前选项：${selected}`;
+    return `我的答案：${selected}`;
 }
 
 button.addEventListener('dblclick', async function (e) {
@@ -325,7 +325,7 @@ button.addEventListener('dblclick', async function (e) {
                 const isCorrect = element.getAttribute('data-is-correct');
                 
                 if (questionNumber && questionType) {
-                    parts.push(`${questionNumber}. ${questionType}`);
+                    parts.push(`${questionNumber} ${questionType}`);
                 } else if (questionType) {
                     parts.push(questionType);
                 }
@@ -336,11 +336,14 @@ button.addEventListener('dblclick', async function (e) {
                 
                 if (allOptions) {
                     parts.push('');
+                    parts.push('选项：');
                     parts.push(allOptions);
                 }
                 
-                parts.push('');
-                parts.push(`我的答案：${userAnswer || '无'}`);
+                if (userAnswer) {
+                    parts.push('');
+                    parts.push(`我的答案：${userAnswer}`);
+                }
                 
                 if (isCorrect) {
                     parts.push(`答案状态：${isCorrect}`);
@@ -363,10 +366,8 @@ button.addEventListener('dblclick', async function (e) {
                 const allOptions = element.getAttribute('data-all-options');
                 const itemType = element.getAttribute('data-item-type');
                 
-                // 添加题号信息
                 if (itemType) {
                     parts.push(itemType);
-                    parts.push(''); // 空行
                 }
                 
                 // 添加题目内容（处理图片，在图片位置插入占位符）
@@ -390,33 +391,39 @@ button.addEventListener('dblclick', async function (e) {
                     parts.push(element.textContent.trim());
                 }
                 
-                // 添加所有选项
                 if (allOptions) {
-                    parts.push(''); // 空行
+                    parts.push('');
                     parts.push('选项：');
                     parts.push(allOptions);
                 }
                 
-                // 添加选中的选项（高亮显示）
                 if (selectedOption) {
-                    parts.push(''); // 空行
-                    parts.push(`我的答案: ${selectedOption}`);
+                    parts.push('');
+                    parts.push(`我的答案：${selectedOption}`);
                 }
                 
-                // 添加正确答案
                 if (correctAnswer) {
-                    parts.push(''); // 空行
-                    parts.push(`正确答案: ${correctAnswer}`);
+                    parts.push(`正确答案：${correctAnswer}`);
                 }
                 
                 return parts;
             },
             'ulearning': (element) => {
-                const parts = [element.textContent.trim()];
+                const parts = [];
+                
+                // 提取题目内容
+                const questionText = element.textContent.trim();
+                if (questionText) {
+                    parts.push(questionText);
+                }
+                
+                // 提取答案信息
                 const answerInfo = element.getAttribute('data-answer-info');
-
-                if (answerInfo) parts.push(answerInfo);
-
+                if (answerInfo) {
+                    parts.push('');
+                    parts.push(answerInfo);
+                }
+                
                 return parts;
             }
         };
