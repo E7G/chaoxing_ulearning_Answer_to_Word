@@ -227,6 +227,16 @@ button.addEventListener('dblclick', async function (e) {
                     element.setAttribute('data-user-answer', userAnswer);
                 }
                 
+                if (!element.hasAttribute('data-user-answer')) {
+                    const fillBlankUserAnswers = element.querySelectorAll('.myAllAnswerBx .myAnswerBx .myAnswer');
+                    if (fillBlankUserAnswers.length > 0) {
+                        const userAnswers = Array.from(fillBlankUserAnswers).map(el => {
+                            return el.textContent.replace(/^第?\d*空[：:\s]*/, '').trim();
+                        }).filter(a => a);
+                        element.setAttribute('data-user-answer', userAnswers.join('；'));
+                    }
+                }
+                
                 const scoreElement = element.querySelector('.scoreNum');
                 if (scoreElement) {
                     const score = scoreElement.textContent.trim();
@@ -243,6 +253,24 @@ button.addEventListener('dblclick', async function (e) {
                 if (correctAnswerElement) {
                     const correctAnswer = correctAnswerElement.textContent.trim();
                     element.setAttribute('data-correct-answer', correctAnswer);
+                }
+                
+                if (!element.hasAttribute('data-correct-answer')) {
+                    const fillBlankCorrectAnswers = element.querySelectorAll('.correctAnswerBx .correctAnswer.marTop16');
+                    if (fillBlankCorrectAnswers.length > 0) {
+                        const correctAnswers = Array.from(fillBlankCorrectAnswers).map(el => {
+                            return el.textContent.replace(/^第?\d*空[：:\s]*/, '').trim();
+                        }).filter(a => a);
+                        element.setAttribute('data-correct-answer', correctAnswers.join('；'));
+                    }
+                }
+                
+                const answerAnalysisElement = element.querySelector('.answerKeyBx .answerCon');
+                if (answerAnalysisElement) {
+                    const analysis = answerAnalysisElement.textContent.trim();
+                    if (analysis) {
+                        element.setAttribute('data-answer-analysis', analysis);
+                    }
                 }
             },
 
@@ -355,6 +383,11 @@ button.addEventListener('dblclick', async function (e) {
                 
                 if (score) {
                     parts.push(`得分：${score}分`);
+                }
+                
+                const answerAnalysis = element.getAttribute('data-answer-analysis');
+                if (answerAnalysis) {
+                    parts.push(`答案解析：${answerAnalysis}`);
                 }
                 
                 return parts;
