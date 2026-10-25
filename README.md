@@ -10,10 +10,13 @@
 ```bash
 // ==UserScript==
 // @name         超星优学院答案保存为word
-// @version      0.1.2
+// @version      0.2.1
 // @match        *://*.chaoxing.com/*work*view*
 // @match        *://*.chaoxing.com/*exam*
 // @match        *://*.chaoxing.com/*selectWorkQuestionYiPiYue*
+// @match        *://*.chaoxing.com/mycourse/studentstudy*
+// @match        *://*.chaoxing.com/mooc-ans/mycourse/studentstudy*
+// @match        *://*.chaoxing.com/*work/list*
 // @match        *://homework.ulearning.cn/*
 // @match        *://changjiang-exam.yuketang.cn/result/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js
@@ -58,6 +61,21 @@
 无需手动安装，脚本运行时会自动从CDN加载。
 
 ## 🛠 使用指南 
+### 批量导出（v0.2.0，学习通）
+
+1. 在油猴中打开原脚本，用本仓库的 `超星优学院答案保存为word.user.js` **完整替换并保存**，刷新学习通页面。完整替换才能应用新增的页面匹配规则。
+2. 进入课程的“章节详情”页面，点击右上角 **批量导出 Word**。
+   按住该按钮可拖动到其他位置；拖动不会打开面板，按钮不会移出可视区域。
+3. 脚本从目录识别名称含“测试、测验、习题、作业”且标记为“已完成”的章节，默认全选；可全选、全不选或逐个勾选。
+4. 如有其他作业，可补充当前站点的已批阅答案详情链接，每行一个。不同子域视为不同站点；请进入对应站点后导出。
+5. 点击 **开始导出**。脚本按目录顺序加载答案页面，每份生成独立 DOCX，最后下载一个 ZIP，内含 `导出清单.txt`。
+
+文件使用序号命名，同名作业不会覆盖。单份失败会继续下一份；25 秒未加载到可读取的已批阅题目则记为失败。点击 **取消** 后，已完成的文件仍会打包，正在读取的后台页面会关闭。没有成功结果时不下载空 ZIP，面板保留失败原因。
+
+目前批量自动发现适配学习通网页版课程目录；未完成章节不自动打开。它读取页面已经提供的题目、选项和答案；教师未公布的正确答案不会补写。优学院、雨课堂继续保留原有单份导出。章节页有多个测验任务或测试位于其他卡片标签时，可分别打开相应的已批阅页面，补充详情链接导出。
+
+### 单份导出
+
 1. 访问支持的页面：
    - **超星平台**：作业、考试、测验页面（URL包含 `chaoxing.com`）
    - **优学院**：作业详情页（`homework.ulearning.cn`）
@@ -109,6 +127,16 @@
    - 建议开启浏览器开发者工具查看日志
 
 ## 🤝 参与贡献 
+### 本地检查
+
+```bash
+npm ci --ignore-scripts
+npm run check
+npm test
+```
+
+自动测试覆盖已完成章节识别、DOCX 内容和 ZIP 打包、同名文件、取消与清理、链接校验及去重、超时后继续、全部失败、空题目保护及单份导出兼容。测试使用与学习通页面相同的 DOM 结构和模拟后台页面，不包含登录凭据或真实课程数据。
+
 欢迎通过以下方式参与项目：
 
 1. **问题反馈**

@@ -1,0 +1,12 @@
+{
+  "name": "chaoxing-ulearning-answer-to-word",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check 超星优学院答案保存为word.user.js"
+  },
+  "devDependencies": {
+    "jsdom": "26.1.0",
+    "jszip": "3.7.1"
+  }
+}

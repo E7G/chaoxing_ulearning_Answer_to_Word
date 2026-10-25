@@ -1,12 +1,15 @@
 // ==UserScript==
 // @name         超星优学院答案保存为word
 // @namespace    http://tampermonkey.net/
-// @version      0.1.2
+// @version      0.2.1
 // @description  Extract text from specific elements, modify it, and save as a DOCX file
 // @author       e7g
 // @match       	 *://*.chaoxing.com/*work*view*
 // @match       	 *://*.chaoxing.com/*exam*
 // @match       	 *://*.chaoxing.com/*selectWorkQuestionYiPiYue*
+// @match         *://*.chaoxing.com/mycourse/studentstudy*
+// @match         *://*.chaoxing.com/mooc-ans/mycourse/studentstudy*
+// @match         *://*.chaoxing.com/*work/list*
 // @match       	 *://homework.ulearning.cn/*
 // @match       	 *://changjiang-exam.yuketang.cn/result/*
 // @grant        none
@@ -46,6 +49,19 @@
     // 获取标题元素 - 一行解决，无嵌套
     const titleElement = document.querySelector(siteTitleSelectors[currentSite]);
     // console.log("currentSite:", currentSite, "titleElement:", titleElement.textContent);
+    // 批量窗口只由最外层页面创建；后台加载页不创建按钮。
+    function isBatchWorker() {
+        let frame = window;
+        while (true) {
+            try {
+                if (new URL(frame.location.href).searchParams.has('cx_word_worker')) return true;
+                if (frame === frame.parent) return false;
+                frame = frame.parent;
+            } catch { return false; }
+        }
+    }
+    if (isBatchWorker()) return;
+    if (currentSite.startsWith('chaoxing') && window === window.top) mountBatchExport();
     if (!titleElement) return;
     // 创建一个浮动的可拖动按钮
     const button = document.createElement('button');
@@ -148,6 +164,266 @@ button.addEventListener('dblclick', async function (e) {
             return;
         }
 
+        button.disabled = true;
+        try {
+            const result = await exportDocument(document, currentSite);
+            saveAs(result.blob, safeFileName(result.title) + '.docx');
+        } catch (error) {
+            alert('导出失败：' + error.message);
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    function safeFileName(name) {
+        return (name || '未命名').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/[. ]+$/g, '').slice(0, 100) || '未命名';
+    }
+
+    function discoverBatchItems() {
+        const items = new Map();
+        const cardFrame = document.querySelector('iframe#iframe');
+        if (cardFrame?.getAttribute('src')) {
+            for (const node of document.querySelectorAll('.posCatalog_select[id^="cur"]')) {
+                const name = node.querySelector('.posCatalog_name');
+                if (!name || !/测试|测验|习题|作业/.test(name.textContent)) continue;
+                // 仅处理已完成的测试，避免进入未作答页面。
+                if (!node.querySelector('.icon_Completed')) continue;
+                const id = node.id.replace(/^cur/, '');
+                if (!/^\d+$/.test(id)) continue;
+                const url = new URL(cardFrame.getAttribute('src'), location.href);
+                url.searchParams.set('knowledgeid', id);
+                url.searchParams.set('num', '0');
+                const section = node.closest('.posCatalog_level')?.parentElement.querySelector('.posCatalog_title');
+                items.set(url.href, { url: url.href, title: [section?.textContent.trim(), name.textContent.trim()].filter(Boolean).join(' / ') });
+            }
+        }
+        for (const link of document.querySelectorAll('a[href]')) {
+            try {
+                const url = validateReviewUrl(link.href);
+                items.set(url, { url, title: link.textContent.trim() || '作业' });
+            } catch { /* 非答案详情链接 */ }
+        }
+        return [...items.values()];
+    }
+
+    function validateReviewUrl(value) {
+        const url = new URL(value, location.href);
+        if (url.origin !== location.origin || !/^https?:$/.test(url.protocol) ||
+            !/selectWorkQuestionYiPiYue|\/work\/view|\/exam[^/]*\/.*(?:look|view)/i.test(url.pathname)) {
+            throw new Error('仅支持当前学习通站点的已批阅答案详情链接');
+        }
+        url.hash = '';
+        return url.href;
+    }
+
+    function mountBatchExport() {
+        const launcher = document.createElement('button');
+        launcher.textContent = '批量导出 Word';
+        launcher.id = 'cx-word-batch-open';
+        launcher.style.cssText = 'position:fixed;right:16px;top:48px;z-index:10001;padding:8px 14px;cursor:grab;touch-action:none;user-select:none';
+        launcher.title = '点击打开批量导出，按住拖动调整位置';
+        document.body.appendChild(launcher);
+        makeDraggable(launcher);
+        launcher.addEventListener('click', () => {
+            if (document.getElementById('cx-word-batch-panel')) return;
+            const panel = document.createElement('section');
+            panel.id = 'cx-word-batch-panel';
+            panel.setAttribute('role', 'dialog');
+            panel.setAttribute('aria-label', '批量导出 Word');
+            panel.style.cssText = 'position:fixed;right:16px;top:88px;width:min(460px,90vw);max-height:75vh;overflow:auto;background:white;color:#222;border:1px solid #aaa;border-radius:8px;padding:16px;z-index:10002;box-shadow:0 4px 24px #0003;font:14px/1.6 sans-serif';
+            panel.innerHTML = '<strong>批量导出 Word</strong><p>自动列出已完成的章节测试。每份生成 DOCX，合并下载为 ZIP。</p>' +
+                '<div data-list></div><label>补充已批阅答案链接（每行一个、与当前页面同站点）<textarea data-urls rows="3" style="display:block;width:100%;box-sizing:border-box"></textarea></label>' +
+                '<p><button data-all>全选</button> <button data-none>全不选</button> <button data-start>开始导出</button> <button data-cancel disabled>取消</button> <button data-close>关闭</button></p>' +
+                '<p data-status role="status" aria-live="polite">请选择需要导出的内容。</p><div data-results></div>';
+            const items = discoverBatchItems();
+            const list = panel.querySelector('[data-list]');
+            items.forEach((item, index) => {
+                const label = document.createElement('label');
+                label.style.display = 'block';
+                const input = document.createElement('input');
+                input.type = 'checkbox';
+                input.checked = true;
+                input.dataset.index = index;
+                label.append(input, document.createTextNode(' ' + item.title));
+                list.appendChild(label);
+            });
+            if (!items.length) list.textContent = '未发现已完成测试，可在下方粘贴答案详情链接。';
+            document.body.appendChild(panel);
+            const start = panel.querySelector('[data-start]');
+            const cancel = panel.querySelector('[data-cancel]');
+            const status = panel.querySelector('[data-status]');
+            const results = panel.querySelector('[data-results]');
+            let controller;
+            let busy = false;
+            panel.querySelector('[data-all]').onclick = () => list.querySelectorAll('input').forEach(input => { input.checked = true; });
+            panel.querySelector('[data-none]').onclick = () => list.querySelectorAll('input').forEach(input => { input.checked = false; });
+            panel.querySelector('[data-close]').onclick = () => { if (!busy) panel.remove(); };
+            cancel.onclick = () => controller?.abort();
+            start.onclick = async () => {
+                if (busy) return;
+                const selected = [...list.querySelectorAll('input:checked')].map(input => items[Number(input.dataset.index)]);
+                try {
+                    for (const line of panel.querySelector('[data-urls]').value.split(/\r?\n/).map(s => s.trim()).filter(Boolean)) {
+                        const url = validateReviewUrl(line);
+                        selected.push({ url, title: '补充作业' });
+                    }
+                } catch (error) { status.textContent = error.message; return; }
+                const queue = [...new Map(selected.map(item => [item.url, item])).values()];
+                if (!queue.length) { status.textContent = '请至少选择一份测试或填写一个答案详情链接。'; return; }
+                busy = true;
+                controller = new AbortController();
+                panel.querySelectorAll('input, textarea, button').forEach(control => { control.disabled = true; });
+                cancel.disabled = false;
+                results.replaceChildren();
+                try {
+                    await runBatchExport(queue, controller.signal, message => { status.textContent = message; }, message => {
+                        const line = document.createElement('p');
+                        line.textContent = message;
+                        results.appendChild(line);
+                    });
+                } catch (error) { status.textContent = '批量导出失败：' + error.message; }
+                finally {
+                    busy = false;
+                    panel.querySelectorAll('input, textarea, button').forEach(control => { control.disabled = false; });
+                    cancel.disabled = true;
+                }
+            };
+        });
+    }
+
+    function makeDraggable(element) {
+        let drag;
+        let suppressClick = false;
+        const moveWithinViewport = (left, top, width, height) => {
+            element.style.left = Math.max(0, Math.min(left, window.innerWidth - width)) + 'px';
+            element.style.top = Math.max(0, Math.min(top, window.innerHeight - height)) + 'px';
+            element.style.right = 'auto';
+        };
+        element.addEventListener('pointerdown', event => {
+            if (event.button !== 0 || event.isPrimary === false) return;
+            const rect = element.getBoundingClientRect();
+            suppressClick = false;
+            drag = { id: event.pointerId, x: event.clientX, y: event.clientY, rect, moved: false };
+            element.setPointerCapture?.(event.pointerId);
+        });
+        document.addEventListener('pointermove', event => {
+            if (!drag || event.pointerId !== drag.id) return;
+            const dx = event.clientX - drag.x;
+            const dy = event.clientY - drag.y;
+            if (!drag.moved && Math.hypot(dx, dy) <= 5) return;
+            drag.moved = true;
+            suppressClick = true;
+            element.style.cursor = 'grabbing';
+            event.preventDefault();
+            moveWithinViewport(drag.rect.left + dx, drag.rect.top + dy, drag.rect.width, drag.rect.height);
+        });
+        const finish = event => {
+            if (!drag || event.pointerId !== drag.id) return;
+            if (element.hasPointerCapture?.(event.pointerId)) element.releasePointerCapture(event.pointerId);
+            drag = undefined;
+            element.style.cursor = 'grab';
+        };
+        document.addEventListener('pointerup', finish);
+        document.addEventListener('pointercancel', finish);
+        element.addEventListener('lostpointercapture', finish);
+        element.addEventListener('click', event => {
+            if (!suppressClick || event.detail === 0) return;
+            suppressClick = false;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        });
+        window.addEventListener('resize', () => {
+            if (!element.style.left) return;
+            const rect = element.getBoundingClientRect();
+            moveWithinViewport(rect.left, rect.top, rect.width, rect.height);
+        });
+    }
+
+    function findReviewDocument(root, seen = new Set()) {
+        if (!root || seen.has(root)) return null;
+        seen.add(root);
+        if (/selectWorkQuestionYiPiYue/.test(root.URL) && root.querySelector('.TiMu')) {
+            return { document: root, site: 'chaoxing_quiz' };
+        }
+        if (root.querySelector('.mark_title') && root.querySelector('.aiAreaContent') &&
+            root.querySelector('.mark_answer, .colorGreen')) return { document: root, site: 'chaoxing' };
+        for (const frame of root.querySelectorAll('iframe')) {
+            try {
+                const result = findReviewDocument(frame.contentDocument, seen);
+                if (result) return result;
+            } catch { /* 跨域框架不可读取 */ }
+        }
+        return null;
+    }
+
+    async function loadReviewDocument(url, signal, useDocument, timeoutMs = 25000) {
+        const frame = document.createElement('iframe');
+        frame.setAttribute('aria-hidden', 'true');
+        frame.style.cssText = 'position:fixed;left:-12000px;top:0;width:1100px;height:800px;visibility:hidden';
+        const target = new URL(url, location.href);
+        if (target.origin !== location.origin) throw new Error('无法读取跨站点答案');
+        target.searchParams.set('cx_word_worker', '1');
+        frame.src = target.href;
+        try {
+            signal.throwIfAborted();
+            document.body.appendChild(frame);
+            const review = await new Promise((resolve, reject) => {
+                const started = Date.now();
+                const cleanup = () => { clearInterval(timer); signal.removeEventListener('abort', abort); };
+                const abort = () => { cleanup(); reject(new DOMException('已取消', 'AbortError')); };
+                const timer = setInterval(() => {
+                    let result;
+                    try { result = findReviewDocument(frame.contentDocument); } catch { /* 等待导航完成 */ }
+                    if (result && result.document.readyState === 'complete') { cleanup(); resolve(result); }
+                    else if (Date.now() - started >= timeoutMs) { cleanup(); reject(new Error('等待已批阅页面超时：可能未批阅、登录失效或页面不支持')); }
+                }, 250);
+                signal.addEventListener('abort', abort, { once: true });
+                if (signal.aborted) abort();
+            });
+            // 在移除 iframe 前完成提取和图片读取。
+            return await useDocument(review);
+        } finally { frame.remove(); }
+    }
+
+    async function runBatchExport(queue, signal, update, report) {
+        const zip = new window.JSZip();
+        const log = [];
+        let succeeded = 0;
+        let failed = 0;
+        for (let index = 0; index < queue.length; index++) {
+            if (signal.aborted) break;
+            const item = queue[index];
+            update(`正在导出 ${index + 1}/${queue.length}：${item.title}`);
+            try {
+                const result = await loadReviewDocument(item.url, signal,
+                    review => exportDocument(review.document, review.site, signal));
+                signal.throwIfAborted();
+                const name = `${String(index + 1).padStart(3, '0')}_${safeFileName(result.title)}.docx`;
+                zip.file(name, await result.blob.arrayBuffer());
+                succeeded++;
+                const message = `成功：${name}（${result.questionCount} 题）`;
+                log.push(message);
+                report(message);
+            } catch (error) {
+                if (signal.aborted) break;
+                failed++;
+                const message = `失败：${item.title} — ${error.message}`;
+                log.push(message);
+                report(message);
+            }
+        }
+        const summary = `${signal.aborted ? '已取消' : '已完成'}：成功 ${succeeded}，失败 ${failed}，未处理 ${queue.length - succeeded - failed}。`;
+        if (succeeded) {
+            update('正在打包 ZIP…');
+            zip.file('导出清单.txt', '\uFEFF' + [summary, ...log].join('\r\n'));
+            const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+            saveAs(blob, `学习通批量导出_${new Date().toISOString().slice(0, 10)}.zip`);
+        }
+        update(summary + (succeeded ? ' ZIP 已生成。' : ' 未生成文件。'));
+    }
+
+    async function exportDocument(sourceDocument, currentSite, signal) {
+        const titleElement = sourceDocument.querySelector(siteTitleSelectors[currentSite]);
         // 站点内容元素选择器配置 - 消除条件嵌套
         const siteContentSelectors = {
             'chaoxing': '.aiAreaContent',
@@ -157,7 +433,9 @@ button.addEventListener('dblclick', async function (e) {
         };
 
         // 获取内容元素 - 一行解决
-        const contentElements = document.querySelectorAll(siteContentSelectors[currentSite]);
+        // 所有预处理都在副本上完成，避免改变原页面答案。
+        const contentElements = Array.from(sourceDocument.querySelectorAll(siteContentSelectors[currentSite]), element => element.cloneNode(true));
+        if (!contentElements.length) throw new Error('未找到可导出的题目');
         const paragraphs = [];
 
         // 站点处理策略 - 消除所有if-else分支
@@ -201,7 +479,7 @@ button.addEventListener('dblclick', async function (e) {
                 const optionElements = element.querySelectorAll('.Zy_ulTop li');
                 if (optionElements.length > 0) {
                     const options = Array.from(optionElements).map(li => {
-                        const optionLabel = li.querySelector('i').textContent.trim();
+                        const optionLabel = li.querySelector('i')?.textContent.trim() || '';
                         let optionText = '';
                         const aElement = li.querySelector('a');
                         if (aElement) {
@@ -245,8 +523,11 @@ button.addEventListener('dblclick', async function (e) {
                 
                 const correctOrNotElement = element.querySelector('.CorrectOrNot');
                 if (correctOrNotElement) {
-                    const isCorrect = correctOrNotElement.querySelector('.marking_dui') !== null;
-                    element.setAttribute('data-is-correct', isCorrect ? '正确' : '错误');
+                    const correct = element.querySelector('.CorrectOrNot .marking_dui');
+                    const wrong = element.querySelector('.CorrectOrNot .marking_cuo');
+                    const partial = element.querySelector('.CorrectOrNot .marking_bandui');
+                    if (partial || (correct && wrong)) element.setAttribute('data-is-correct', '部分正确');
+                    else if (correct || wrong) element.setAttribute('data-is-correct', correct ? '正确' : '错误');
                 }
                 
                 const correctAnswerElement = element.querySelector('.correctAnswerBx .correctAnswer .answerCon');
@@ -507,7 +788,8 @@ button.addEventListener('dblclick', async function (e) {
         const validImages = [];
         for (let i = 0; i < images.length; i++) {
             try {
-                const base64Data = await downloadImage(images[i].url);
+                signal?.throwIfAborted();
+                const base64Data = await downloadImage(new URL(images[i].url, sourceDocument.baseURI).href);
                 if (base64Data) {
                     validImages.push({
                         data: base64Data,
@@ -628,12 +910,12 @@ button.addEventListener('dblclick', async function (e) {
                                     <w:drawing>
                                         <wp:inline distT="0" distB="0" distL="0" distR="0">
                                             <wp:extent cx="3000000" cy="2250000"/>
-                                            <wp:docPr id="${imageIndex + 1}" name="${image.alt}" descr="原始图片地址: ${image.originalSrc || '未知'}"/>
+                                            <wp:docPr id="${imageIndex + 1}" name="${escapeXml(image.alt)}" descr="原始图片地址: ${escapeXml(image.originalSrc || '未知')}"/>
                                             <a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">
                                                 <a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
                                                     <pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
                                                         <pic:nvPicPr>
-                                                            <pic:cNvPr id="${imageIndex + 1}" name="${image.alt}" descr="原始图片地址: ${image.originalSrc || '未知'}"/>
+                                                            <pic:cNvPr id="${imageIndex + 1}" name="${escapeXml(image.alt)}" descr="原始图片地址: ${escapeXml(image.originalSrc || '未知')}"/>
                                                             <pic:cNvPicPr/>
                                                         </pic:nvPicPr>
                                                         <pic:blipFill>
@@ -700,14 +982,14 @@ button.addEventListener('dblclick', async function (e) {
                                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
                     <dc:creator>User</dc:creator>
                     <cp:lastModifiedBy>User</cp:lastModifiedBy>
-                    <dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString().replace(/[-T:\.Z]/g, '').slice(0, 14)}</dcterms:created>
-                    <dcterms:modified xsi:type="dcterms:W3CDTF">${new Date().toISOString().replace(/[-T:\.Z]/g, '').slice(0, 14)}</dcterms:modified>
+                    <dcterms:created xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:created>
+                    <dcterms:modified xsi:type="dcterms:W3CDTF">${new Date().toISOString()}</dcterms:modified>
                 </cp:coreProperties>
             `;
             zip.file('docProps/core.xml', corePropsXml);
 
             // Return the generated ZIP file as a Blob
-            return zip.generateAsync({ type: 'blob' });
+            return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
         }
 
         // Function to escape XML special characters
@@ -716,15 +998,16 @@ button.addEventListener('dblclick', async function (e) {
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;')
                 .replace(/"/g, '&quot;')
-                .replace(/\n{2,}/g, '\n')
-                .replace(/[\n\r]/g, '<w:br/>')
+                .replace(/\r\n?/g, '\n')
+                .replace(/\n/g, '</w:t><w:br/><w:t xml:space="preserve">')
                 .replace(/'/g, '&apos;');
         }
 
         // 图片下载函数 - 转换为base64编码
         async function downloadImage(url) {
             try {
-                const response = await fetch(url);
+                const response = await fetch(url, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) });
+                if (!response.ok) throw new Error(`图片 HTTP ${response.status}`);
                 const blob = await response.blob();
                 return new Promise((resolve) => {
                     const reader = new FileReader();
@@ -733,6 +1016,7 @@ button.addEventListener('dblclick', async function (e) {
                 });
             } catch (error) {
                 console.error('图片下载失败:', error);
+                signal?.throwIfAborted();
                 return null;
             }
         }
@@ -740,25 +1024,11 @@ button.addEventListener('dblclick', async function (e) {
 
 
         // 下载图片并生成DOCX文件
-        const imagePromises = images.map(img => 
-            img.data ? Promise.resolve(img) : 
-            downloadImage(img.url || '').then(data => ({...img, data}))
-        );
-        
-        Promise.all(imagePromises).then(function (loadedImages) {
-            // 过滤掉下载失败的图片
-            const validImages = loadedImages.filter(img => img.data);
-            
-            // 创建并下载DOCX文件
-            createDocx(paragraphs, validImages).then(function (blob) {
-                const fileName = (titleElement ? titleElement.innerText.trim() : 'extracted_text') + '.docx';
-                saveAs(blob, fileName);
-            }).catch(function (error) {
-                console.error('创建DOCX文件失败:', error);
-                alert('创建DOCX文件失败: ' + error.message);
-            });
-        }).catch(function (error) {
-            console.error('下载图片失败:', error);
-        });
-    });
+        signal?.throwIfAborted();
+        return {
+            blob: await createDocx(paragraphs, validImages),
+            title: titleElement?.textContent.trim() || 'extracted_text',
+            questionCount: contentElements.length
+        };
+    }
 })();
